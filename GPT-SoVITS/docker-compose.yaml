@@ -1,0 +1,17 @@
+services:
+  gpt-sovits-inference:
+    build:
+      context: ..
+      dockerfile: GPT-SoVITS/Dockerfile
+    ports:
+      - "${API_PORT:-9880}:9880"
+    volumes:
+      - ./GPT_SoVITS/pretrained_models:/app/GPT-SoVITS/GPT_SoVITS/pretrained_models:ro
+      - ./GPT_SoVITS/text/G2PWModel:/app/GPT-SoVITS/GPT_SoVITS/text/G2PWModel:ro
+      - ./GPT_SoVITS/configs/tts_local.yaml:/app/GPT-SoVITS/GPT_SoVITS/configs/tts_local.yaml:ro
+      - ./references:/app/GPT-SoVITS/references:ro
+      - ./GPT_SoVITS/vendor/ap_bwe/24kto48k:/app/GPT-SoVITS/GPT_SoVITS/vendor/ap_bwe/24kto48k:ro
+      - ./tools/AP_BWE_main/24kto48k:/app/GPT-SoVITS/tools/AP_BWE_main/24kto48k:ro
+      - ./.codex/runtime-cache:/app/GPT-SoVITS/.codex/runtime-cache
+    gpus: all
+    restart: unless-stopped

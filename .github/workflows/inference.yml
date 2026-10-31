@@ -1,0 +1,129 @@
+name: Shared inference environment
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  cpu:
+    name: Python 3.12 shared CPU (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PIP_CACHE_DIR: ${{ github.workspace }}/.codex/pip-cache
+      NLTK_DATA: ${{ github.workspace }}/GPT-SoVITS/.codex/runtime-cache/nltk_data
+    steps:
+      - name: Check out code and regression fixtures
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+            constraints.txt
+            RVC/requirements-inference.txt
+            GPT-SoVITS/requirements.txt
+
+      - name: Install Linux media and build libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --yes ffmpeg libsndfile1 build-essential
+
+      - name: Install Windows FFmpeg
+        if: runner.os == 'Windows'
+        uses: FedericoCarboni/setup-ffmpeg@v3
+
+      - name: Configure Windows C++ compiler
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: x64
+
+      - name: Install matched CPU Torch packages
+        run: >-
+          python -m pip install
+          torch==2.8.0 torchaudio==2.8.0
+          --index-url https://download.pytorch.org/whl/cpu
+
+      - name: Install both projects into the same environment
+        run: |
+          python -m pip install -r requirements.txt -r requirements-dev.txt -c constraints.txt
+          python -m pip install --no-deps -e RVC
+          python -m pip check
+
+      - name: Prepare language resources
+        run: python scripts/prepare_language_resources.py
+
+      - name: Run RVC regression tests
+        working-directory: RVC
+        run: python -B -m pytest -q
+
+      - name: Import GPT-SoVITS without model weights
+        working-directory: GPT-SoVITS
+        run: python -c "import api_v2; assert api_v2.tts_pipeline is None"
+
+      - name: Run GPT-SoVITS regression tests
+        working-directory: GPT-SoVITS
+        run: python -B -m unittest discover -s tests -t . -p "test_*.py"
+
+      - name: Build RVC wheel
+        working-directory: RVC
+        run: python -m build --wheel --outdir ../.codex/dist
+
+      - name: Verify wheel contents
+        run: >-
+          python -c "import glob, zipfile;
+          wheels = glob.glob('.codex/dist/*.whl');
+          assert len(wheels) == 1, wheels;
+          names = set(zipfile.ZipFile(wheels[0]).namelist());
+          required = {'rvc/separation/LICENSE.pymss', 'rvc/separation/LICENSE.pymss-core', 'rvc/separation/resources/model_bs_roformer_ep_368_sdr_12.9628.yaml', 'tools/cuda_graph.py'};
+          assert required <= names, required - names;
+          forbidden = [name for name in names if name.startswith(('tests/', 'assets/', '.codex/', '.zcode/')) or '__pycache__' in name or name.endswith(('.pyc', '.pyo'))];
+          assert not forbidden, forbidden"
+
+      - name: Install built wheel
+        run: >-
+          python -c "import glob, subprocess, sys;
+          wheels = glob.glob('.codex/dist/*.whl');
+          assert len(wheels) == 1, wheels;
+          subprocess.check_call([sys.executable, '-m', 'pip', 'install', '--force-reinstall', '--no-deps', wheels[0]])"
+
+      - name: Smoke installed RVC commands outside repository
+        working-directory: ${{ runner.temp }}
+        run: |
+          rvc --help
+          rvc separate list
+          python -I -m infer.cli --help
+          python -I -m tools.pymss.cli list
+          python -I -c "import infer.audio, infer.module.models, infer.vc.pipeline, tools.cuda_graph, tools.pymss; from importlib.resources import files; p=files('rvc.separation'); assert p.joinpath('resources','model_bs_roformer_ep_368_sdr_12.9628.yaml').is_file(); assert p.joinpath('LICENSE.pymss').is_file(); assert p.joinpath('LICENSE.pymss-core').is_file()"
+
+  docker:
+    name: Build and check inference container
+    needs: cpu
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image with shared dependencies
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: GPT-SoVITS/Dockerfile
+          load: true
+          tags: tts-sts-inference:ci
+      - name: Check container imports and HTTP contract
+        run: |
+          docker run --rm --entrypoint python tts-sts-inference:ci -c "import api_v2; assert api_v2.tts_pipeline is None"
+          docker run --rm --entrypoint python tts-sts-inference:ci -m unittest tests.test_api_v2_streaming
+          docker run --rm --entrypoint rvc tts-sts-inference:ci --help

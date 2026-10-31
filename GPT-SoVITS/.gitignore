@@ -1,0 +1,53 @@
+# Local environments and runtime bundles
+/.codex/
+/.venv/
+/venv/
+/env/
+/ENV/
+/runtime/
+.env
+.env.*
+
+# Models, references and local inference settings
+/models/
+/references/
+/ref_audios/
+/GPT_weights*/
+/SoVITS_weights*/
+/GPT_SoVITS/text/G2PWModel/
+/GPT_SoVITS/configs/tts_local*.yaml
+/GPT_SoVITS/vendor/ap_bwe/24kto48k/*
+!/GPT_SoVITS/vendor/ap_bwe/24kto48k/config.json
+/tools/AP_BWE_main/24kto48k/*
+!/tools/AP_BWE_main/24kto48k/config.json
+/weight.json
+/cfg.json
+/speakers.json
+/ffmpeg*
+/ffprobe*
+
+# Generated output, caches and package artifacts
+/output/
+/output.wav
+/logs/
+/TEMP/
+__pycache__/
+*.py[cod]
+*.log
+.cache/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+build/
+dist/
+*.egg-info/
+
+# Local editor and OS state
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

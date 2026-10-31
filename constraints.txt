@@ -1,0 +1,3 @@
+# Highest matching official Windows CPython 3.12 CUDA 12.9 wheel pair.
+torch==2.8.0
+torchaudio==2.8.0

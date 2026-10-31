@@ -1,0 +1,16 @@
+# Inference dependencies; the repository root lock records the tested versions.
+torch>=2.8
+torchaudio>=2.8
+hyper-connections
+av
+faiss-cpu
+ffmpeg-python
+librosa
+numpy
+praat-parselmouth
+PyYAML
+scipy
+soundfile
+torchfcpe
+tqdm
+transformers

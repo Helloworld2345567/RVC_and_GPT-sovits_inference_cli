@@ -1,0 +1,17 @@
+# Build context excludes model caches and local runtime bundles.
+.git
+.codex
+runtime
+.venv
+models
+GPT_SoVITS/pretrained_models/*
+GPT_SoVITS/text/G2PWModel/*
+__pycache__
+*.pyc
+GPT_SoVITS/vendor/ap_bwe/24kto48k/*.zip
+tools/AP_BWE_main/24kto48k/*.zip
+references
+.env
+.env.*
+GPT_SoVITS/configs/tts_local*.yaml
+output.wav

@@ -1,0 +1,50 @@
+# Core numerical and audio runtime
+numpy
+scipy
+numba
+librosa
+soundfile
+torch>=2.8
+torchaudio>=2.8
+resampy
+tqdm
+PyYAML
+rich
+loguru
+
+# Text processing for all supported inference languages
+cn2an
+pypinyin
+# Build against the current NumPy ABI; the old Windows wheel targets NumPy 1.x.
+pyopenjtalk>=0.4.1
+g2p_en
+jieba_fast; sys_platform != 'win32' or python_version != '3.12'
+jieba_fast @ https://huggingface.co/lj1995/GPT-SoVITS-windows-package/resolve/main/wheels/cu128/jieba_fast-0.53-cp312-cp312-win_amd64.whl ; sys_platform == 'win32' and python_version == '3.12'
+jieba
+split-lang
+fast_langdetect>=0.3.1
+wordsegment
+ToJyutping
+g2pk2
+opencc
+nltk
+inflect
+jamo
+python_mecab_ko
+
+# Model runtime
+transformers
+peft
+x_transformers
+einops
+packaging
+huggingface_hub
+requests
+onnxruntime
+
+# HTTP service
+fastapi>=0.115.2
+uvicorn[standard]>=0.30
+httpx
+anyio
+pydantic

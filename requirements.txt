@@ -1,0 +1,3 @@
+# Shared runtime. Install using the root install.ps1 and the tested lock.
+-r RVC/requirements-inference.txt
+-r GPT-SoVITS/requirements.txt
