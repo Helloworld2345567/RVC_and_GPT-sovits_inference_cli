@@ -123,9 +123,7 @@ class Pipeline(object):
                 threshold=0.006,
             ).squeeze().detach().cpu().numpy()
 
-        uv = f0 == 0
-        if np.any(uv) and np.any(~uv):
-            f0[uv] = np.interp(np.where(uv)[0], np.where(~uv)[0], f0[~uv])
+        # Zero F0 marks unvoiced frames for both NSF synthesis and protection.
         f0 *= pow(2, f0_up_key / 12)
         f0bak = f0.copy()
         f0_mel = 1127 * np.log(1 + f0 / 700)
@@ -279,7 +277,9 @@ class Pipeline(object):
 
             if not file_index or not os.path.isfile(file_index):
                 raise FileNotFoundError("Index not found: %s" % file_index)
-            index = faiss.read_index(str(file_index))
+            # FAISS's native filename reader cannot open Unicode paths on Windows.
+            with open(file_index, "rb") as index_file:
+                index = faiss.read_index(faiss.PyCallbackIOReader(index_file.read))
             expected_dimension = 256 if version == "v1" else 768
             if index.ntotal < 1 or index.d != expected_dimension:
                 raise ValueError("Index must contain vectors with dimension %s" % expected_dimension)

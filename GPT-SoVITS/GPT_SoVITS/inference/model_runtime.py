@@ -70,7 +70,7 @@ class ModelRuntimeMixin:
     def init_bert_weights(self, base_path: str):
         print(f"Loading BERT weights from {base_path}")
         self.bert_tokenizer = AutoTokenizer.from_pretrained(base_path)
-        self.bert_model = AutoModel.from_pretrained(base_path, add_pooling_layer=False)
+        self.bert_model = AutoModel.from_pretrained(base_path, add_pooling_layer=False, dtype=torch.float32)
         self.bert_model = self.bert_model.eval()
         self.bert_model = self.bert_model.to(self.configs.device)
         if self.configs.is_half and str(self.configs.device) != "cpu":

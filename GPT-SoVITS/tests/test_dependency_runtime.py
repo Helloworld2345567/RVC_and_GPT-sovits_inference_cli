@@ -3,6 +3,7 @@
 from io import BytesIO
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 
 import torch
@@ -27,6 +28,41 @@ class TinyCFM(nn.Module):
 
 
 class SharedDependencyTests(unittest.TestCase):
+    def test_bert_runtime_uses_full_precision_for_half_checkpoint_on_cpu(self):
+        from transformers import BertConfig, BertModel, BertTokenizer
+
+        from GPT_SoVITS.inference.model_runtime import ModelRuntimeMixin
+
+        config = BertConfig(
+            vocab_size=7,
+            hidden_size=8,
+            num_hidden_layers=2,
+            num_attention_heads=2,
+            intermediate_size=16,
+        )
+        TEMP_ROOT.mkdir(parents=True, exist_ok=True)
+        with torch.random.fork_rng(), tempfile.TemporaryDirectory(
+            prefix="bert-precision-", dir=TEMP_ROOT
+        ) as directory:
+            torch.manual_seed(43)
+            original = BertModel(config, add_pooling_layer=False).half().eval()
+            original.save_pretrained(directory)
+            tokenizer = BertTokenizer(vocab={
+                "[PAD]": 0, "[UNK]": 1, "[CLS]": 2, "[SEP]": 3,
+                "[MASK]": 4, "你": 5, "好": 6,
+            })
+            tokenizer.save_pretrained(directory)
+            runtime = ModelRuntimeMixin()
+            runtime.configs = SimpleNamespace(device="cpu", is_half=False)
+            runtime.init_bert_weights(directory)
+            self.assertEqual(next(runtime.bert_model.parameters()).dtype, torch.float32)
+            original.float()
+            inputs = runtime.bert_tokenizer("你好", return_tensors="pt")
+            with torch.inference_mode():
+                expected = original(**inputs).last_hidden_state
+                actual = runtime.bert_model(**inputs).last_hidden_state
+            torch.testing.assert_close(actual, expected, rtol=0, atol=0)
+
     def test_cnhubert_loads_local_checkpoint_and_preserves_features(self):
         from transformers import HubertConfig, HubertModel, Wav2Vec2FeatureExtractor
 
@@ -50,11 +86,16 @@ class SharedDependencyTests(unittest.TestCase):
             prefix="cnhubert-", dir=TEMP_ROOT
         ) as directory:
             torch.manual_seed(42)
-            original = HubertModel(config).eval()
+            # Official CNHuBERT checkpoints store half-precision tensors. The
+            # pipeline's is_half option, rather than that storage dtype, owns
+            # the runtime precision.
+            original = HubertModel(config).half().eval()
             extractor = Wav2Vec2FeatureExtractor(sampling_rate=16000)
             original.save_pretrained(directory)
             extractor.save_pretrained(directory)
             restored = CNHubert(directory).eval()
+            original.float()
+            self.assertEqual(next(restored.parameters()).dtype, torch.float32)
             waveform = torch.linspace(-0.75, 0.75, 1600)
             inputs = extractor(waveform, sampling_rate=16000, return_tensors="pt").input_values
             with torch.inference_mode():

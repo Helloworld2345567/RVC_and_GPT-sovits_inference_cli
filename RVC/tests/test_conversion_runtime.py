@@ -103,6 +103,22 @@ class ConversionRuntimeTests(unittest.TestCase):
         self.assertTrue(torch.isfinite(captured[0]).all())
         self.assertEqual(result.shape, (100,))
 
+    def test_index_in_a_unicode_directory_loads_without_copying(self):
+        directory = self.root / "可莉 模型"
+        directory.mkdir()
+        index_path = directory / "检索.index"
+        vectors = np.stack([np.zeros(256), np.ones(256)]).astype(np.float32)
+        index = faiss.IndexFlatL2(256)
+        index.add(vectors)
+        index_path.write_bytes(faiss.serialize_index(index).tobytes())
+        pipeline = Pipeline(32000, pipeline_config(self.root))
+        output = np.zeros(2 * pipeline.t_pad_tgt + 100, np.float32)
+        with patch.object(pipeline, "vc", return_value=output) as convert:
+            result = pipeline.pipeline(None, None, 0, self.audio.astype(np.float32), [0, 0, 0], 0, "pm", str(index_path), 0.75, 0, 32000, 0, 1.0, "v1", 0.33)
+        self.assertEqual(convert.call_args.args[7].ntotal, len(vectors))
+        np.testing.assert_array_equal(convert.call_args.args[8], vectors)
+        self.assertEqual(result.shape, (100,))
+
     def test_nonfinite_synthesis_fails_before_pcm_conversion(self):
         pipeline = Pipeline(32000, pipeline_config(self.root))
         output = np.full(2 * pipeline.t_pad_tgt + 100, np.nan, np.float32)
@@ -116,6 +132,47 @@ class ConversionRuntimeTests(unittest.TestCase):
             result = pipeline.pipeline(None, None, 0, self.audio.astype(np.float32), [0, 0, 0], 0, "rmvpe", "", 0, 0, 32000, 0, 1.0, "v1", 0.33)
         self.assertEqual(result.shape, (100,))
         self.assertEqual(result.dtype, np.int16)
+
+    def test_pitch_shift_preserves_unvoiced_frames_from_pitch_predictors(self):
+        for method in ("rmvpe", "fcpe"):
+            for semitones in (0, 12, -12):
+                with self.subTest(method=method, semitones=semitones):
+                    raw = np.array([0, 110, 0, 220, 0], dtype=np.float32)
+                    pipeline = Pipeline(32000, pipeline_config(self.root))
+                    pipeline.model_rmvpe = SimpleNamespace(infer_from_audio=lambda *args, **kwargs: raw.copy())
+                    pipeline.model_fcpe = SimpleNamespace(infer=lambda *args, **kwargs: torch.from_numpy(raw.copy()))
+                    coarse, continuous = pipeline.get_f0(np.zeros(800, np.float32), 5, semitones, method)
+                    np.testing.assert_allclose(continuous, raw * 2 ** (semitones / 12), rtol=1e-6)
+                    np.testing.assert_array_equal(continuous == 0, raw == 0)
+                    np.testing.assert_array_equal(coarse[raw == 0], np.ones(3, dtype=np.int32))
+
+    def test_all_unvoiced_pitch_stays_zero(self):
+        for method in ("rmvpe", "fcpe"):
+            with self.subTest(method=method):
+                pipeline = Pipeline(32000, pipeline_config(self.root))
+                pipeline.model_rmvpe = SimpleNamespace(infer_from_audio=lambda *args, **kwargs: np.zeros(5, np.float32))
+                pipeline.model_fcpe = SimpleNamespace(infer=lambda *args, **kwargs: torch.zeros(5))
+                coarse, continuous = pipeline.get_f0(np.zeros(800, np.float32), 5, 12, method)
+                np.testing.assert_array_equal(continuous, np.zeros(5, np.float32))
+                np.testing.assert_array_equal(coarse, np.ones(5, dtype=np.int32))
+
+    def test_unvoiced_frames_use_protection_during_index_blending(self):
+        vectors = np.full((1, 256), 3, np.float32)
+        index = faiss.IndexFlatL2(256)
+        index.add(vectors)
+        captured = []
+
+        def synthesize(phone, lengths, coarse, continuous, speaker):
+            captured.append(phone.clone())
+            return (torch.zeros((1, 1, 100)),)
+
+        pipeline = Pipeline(32000, pipeline_config(self.root))
+        pitch = torch.tensor([[1, 50, 1, 50]])
+        pitchf = torch.tensor([[0.0, 220.0, 0.0, 220.0]])
+        with patch("rvc.vc.pipeline.extract_hubert_features", return_value=torch.ones((1, 2, 256))):
+            pipeline.vc(None, SimpleNamespace(infer=synthesize), torch.tensor([0]), np.zeros(640, np.float32), pitch, pitchf, [0, 0, 0], index, vectors, 1.0, "v1", 0.33)
+        expected = torch.tensor([1.66, 3.0, 1.66, 3.0]).reshape(1, 4, 1).expand(1, 4, 256)
+        torch.testing.assert_close(captured[0], expected)
 
     def test_batch_failure_returns_nonzero_and_keeps_successful_output(self):
         model_path = self.root / "voice.pth"

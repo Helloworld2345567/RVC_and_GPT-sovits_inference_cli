@@ -24,7 +24,7 @@ class CNHubert(nn.Module):
         super().__init__()
         if not os.path.exists(base_path):
             raise FileNotFoundError(base_path)
-        self.model = HubertModel.from_pretrained(base_path, local_files_only=True)
+        self.model = HubertModel.from_pretrained(base_path, local_files_only=True, dtype=torch.float32)
         self.feature_extractor = Wav2Vec2FeatureExtractor.from_pretrained(base_path, local_files_only=True)
 
     def forward(self, x):

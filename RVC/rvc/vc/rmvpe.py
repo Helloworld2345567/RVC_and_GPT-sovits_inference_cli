@@ -522,6 +522,24 @@ class RMVPE:
         self.cents_mapping = np.pad(cents_mapping, (4, 4))  # 368
 
     def mel2hidden(self, mel):
+        # Keep long songs within GPU memory. Boundaries stay on the network's
+        # 32-frame pooling grid; context is discarded only after inference.
+        chunk_frames, context_frames = 3072, 192
+        n_frames = mel.shape[-1]
+        if n_frames <= chunk_frames:
+            return self._mel2hidden(mel)
+        chunks = []
+        for start in range(0, n_frames, chunk_frames):
+            end = min(start + chunk_frames, n_frames)
+            left = max(0, start - context_frames)
+            right = min(n_frames, end + context_frames)
+            hidden = self._mel2hidden(mel[..., left:right])
+            chunks.append(hidden[:, start - left : end - left])
+        if isinstance(chunks[0], np.ndarray):
+            return np.concatenate(chunks, axis=1)
+        return torch.cat(chunks, dim=1)
+
+    def _mel2hidden(self, mel):
         with torch.no_grad():
             n_frames = mel.shape[-1]
             n_pad = 32 * ((n_frames - 1) // 32 + 1) - n_frames
