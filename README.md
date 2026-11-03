@@ -63,6 +63,71 @@ python api_v2.py -a 127.0.0.1 -p 9880 -c GPT_SoVITS/configs/tts_local.yaml
 
 `tts_local.yaml` 的准备方法见 [GPT-SoVITS 快速开始](GPT-SoVITS/README.md)。服务默认只监听本机，生成音频使用原有 `POST /tts` 接口。两个程序分别启动进程，共用同一 Python 解释器及依赖。
 
+## 角色模型目录
+
+角色模型统一放在 `models/<服务>/<角色 ID>/<模型版本>/`，中文角色名保存在
+`model.json`。共享基座、HuBERT、RMVPE 和声码器继续使用各项目的资源目录。
+
+```text
+models/
+  rvc/klee/v2/
+    model.pth
+    model.index
+    model.json
+  gpt-sovits/klee/v4-zh/
+    gpt.ckpt
+    sovits.pth
+    references/default.wav
+    model.json
+```
+
+在共享环境中执行独立目录工具：
+
+```powershell
+# 检查模型，返回 JSON；--import 为新模型生成或补全 model.json。
+python -B scripts/model_catalog.py scan --root models --import
+
+# 将已识别且完整的模型整理为上述路径，内容相同的重复模型只保留一份。
+python -B scripts/model_catalog.py normalize --root models
+```
+
+新增模型可先放入独立目录，再运行扫描；连接本目录的机器人也可通过“刷新模型”
+完成同样的登记。扫描不会移动文件或启动推理。RVC 根据 checkpoint 的配置和权重
+结构识别，GPT 与 SoVITS 分别检查；`.pth` 扩展名本身不决定服务类型。未知格式、
+缺少配套权重、参考音频或转写，以及无法确定的多文件配对都会显示为 `blocked`。
+
+每组模型的 `model.json` 保存稳定 ID、显示名称、服务类型、模型版本、相对资源
+路径和 GPT-SoVITS 的参考文本/语言。一个目录有多个候选时，拆分目录或在该文件中
+明确 `files` 配对。参考 WAV 文件名为 `【默认】完整参考文本.wav` 时，首次导入可
+提取文本；其他名称需填写 `reference.text`。参考音频须完整且为 3～10 秒。
+修改显示名称或移动模型目录不需要更换 ID。
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "klee-v4-zh",
+  "serviceId": "gpt-sovits",
+  "displayName": "可莉",
+  "modelVersion": "v4",
+  "files": {
+    "gpt": "gpt.ckpt",
+    "sovits": "sovits.pth",
+    "reference": "references/default.wav"
+  },
+  "reference": {
+    "text": "填写参考音频实际说出的文字",
+    "promptLang": "all_zh",
+    "textLang": "all_zh"
+  }
+}
+```
+
+服务地址、Python 环境、设备和运行项目路径属于部署配置，不写入模型说明。
+扫描输出协议为 `version: 1`，每项包含根目录相对路径、配置状态及 `resourceHash`；
+后者仅覆盖本模型的执行资源和参考设置，训练日志不影响它。资源摘要和识别结果缓存在
+`.codex/model-catalog-cache.json`，只有大小或修改时间变化的文件才重新读取。
+调用方可用 `--cache <文件>` 指定自己的缓存位置。
+
 ## 测试
 
 在根目录、已激活共享环境的终端中安装测试依赖：
@@ -70,6 +135,7 @@ python api_v2.py -a 127.0.0.1 -p 9880 -c GPT_SoVITS/configs/tts_local.yaml
 ```powershell
 python -m pip install -r requirements-dev.txt -c constraints.txt
 python -m pip check
+python -B -m unittest discover -s tests -p test_model_catalog.py
 Set-Location RVC
 python -B -m pytest -q
 Set-Location ../GPT-SoVITS
